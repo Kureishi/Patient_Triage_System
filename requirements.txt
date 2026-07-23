@@ -1,0 +1,6 @@
+langgraph>=0.2
+pydantic>=2
+pdfplumber>=0.11
+reportlab>=4
+anthropic>=0.34
+openai>=1.40
