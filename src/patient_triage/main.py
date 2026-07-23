@@ -16,11 +16,11 @@ import sys
 import glob
 import traceback
 
-import config
-from llm_backends import get_backend
-from pdf_utils import extract_text_from_pdf, generate_recommendation_pdf
-from graph import build_graph
-from db import init_db, log_event
+from . import config
+from .llm_backends import get_backend
+from .pdf_utils import extract_text_from_pdf, generate_recommendation_pdf
+from .graph import build_graph
+from .db import init_db, log_event
 
 
 def process_one(app, backend, conn, pdf_path: str, output_dir: str):

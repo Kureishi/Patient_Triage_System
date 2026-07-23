@@ -6,12 +6,9 @@ node whose behavior is parameterized by `case.specialty` at call time --
 each specialty gets its own system prompt context, but the code path,
 schema, and hand-back-to-delegator logic are shared.
 """
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from schemas import ClassificationItem, SpecialistVerdict
-from llm_backends import LLMBackend
-from utils import extract_json
+from ..schemas import ClassificationItem, SpecialistVerdict
+from ..llm_backends import LLMBackend
+from ..utils import extract_json
 
 
 def build_system_prompt(specialty: str) -> str:

@@ -7,14 +7,11 @@ Responsibilities:
   - Re-classify a case when a specialist hands it back unresolved,
     incorporating the specialist's feedback
 """
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from typing import List
-from schemas import ClassificationItem
-from llm_backends import LLMBackend
-from utils import extract_json
-import config
+from ..schemas import ClassificationItem
+from ..llm_backends import LLMBackend
+from ..utils import extract_json
+from .. import config
 
 SYSTEM_PROMPT = f"""You are a medical intake triage assistant. Return a JSON list of ailments \
 found in the patient report. For each ailment, output an object with exactly these fields:

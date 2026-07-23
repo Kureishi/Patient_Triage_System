@@ -1,6 +1,6 @@
 """
 Graph wiring for the triage system, built with LangGraph so the
-hand-back-to-delegator loop (requirement 4) is a first-class cycle in the
+hand-back-to-delegator loop is a first-class cycle in the
 state graph rather than bolted-on control flow.
 
 Flow:
@@ -16,10 +16,10 @@ Flow:
 import functools
 from langgraph.graph import StateGraph, END
 
-import config
-from schemas import CaseState, EscalatedCase
-from agents.delegator import classify_report, reassess_case
-from agents.specialist import consult_specialist
+from . import config
+from .schemas import CaseState, EscalatedCase
+from .agents.delegator import classify_report, reassess_case
+from .agents.specialist import consult_specialist
 
 
 def _sorted_queue(items):

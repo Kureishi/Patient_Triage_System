@@ -1,6 +1,6 @@
 import sqlite3
 import time
-import config
+from . import config
 
 
 def init_db(path: str = None):

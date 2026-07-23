@@ -16,7 +16,7 @@ Supported backends:
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import json
-import config
+from . import config
 
 
 class LLMBackend(ABC):

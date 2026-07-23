@@ -53,8 +53,16 @@ order** (severe → major → minor), satisfying requirement (3).
 
 ## Setup
 
+Install the package (this registers the `p-tri` command on your PATH):
+
 ```bash
-pip install -r requirements.txt
+pip install .            # from inside this project folder
+# or, for local development with live-reload on code changes:
+pip install -e .
+```
+
+`p-tri` is exactly `python main.py` from earlier — same CLI, same flags —
+just installed as a proper command instead of a script you invoke by path.
 ```
 
 ### LLM backend (swappable — pick one via `--backend`)
@@ -72,12 +80,12 @@ pip install -r requirements.txt
 
 ```bash
 # Put patient report PDFs in input_reports/, then:
-python main.py --backend lmstudio
-python main.py --backend anthropic --model claude-sonnet-4-6
-python main.py --backend mock              # offline test, no LLM needed
+p-tri --backend lmstudio
+p-tri --backend anthropic --model claude-sonnet-4-6
+p-tri --backend mock              # offline test, no LLM needed
 
 # Custom folders:
-python main.py --input-dir my_reports --output-dir my_recommendations
+p-tri --input-dir my_reports --output-dir my_recommendations
 ```
 
 Each `<name>.pdf` in the input folder produces `<name>_recommendation.pdf`
@@ -93,16 +101,19 @@ auditing.
 ## Project layout
 
 ```
-config.py           specialties, severity levels, retry limits, backend config
-schemas.py           Pydantic/TypedDict data contracts between agents
-llm_backends.py       swappable LLM backend (anthropic / lmstudio / mock)
-utils.py              JSON extraction helper for LLM outputs
-pdf_utils.py          PDF text extraction + recommendation PDF generation
-db.py                 SQLite audit logging
-agents/delegator.py    Agent 1: classify + reassess
-agents/specialist.py   Agent 2..N: per-specialty consultation
-graph.py               LangGraph wiring (the cyclic state machine)
-main.py                CLI batch entry point
+pyproject.toml                    packaging metadata + the `p-tri` entry point
+src/patient_triage/
+    config.py                     specialties, severity levels, retry limits, backend config
+    schemas.py                    Pydantic/TypedDict data contracts between agents
+    llm_backends.py               swappable LLM backend (anthropic / lmstudio / mock)
+    utils.py                      JSON extraction helper for LLM outputs
+    pdf_utils.py                  PDF text extraction + recommendation PDF generation
+    db.py                         SQLite audit logging
+    graph.py                      LangGraph wiring (the cyclic state machine)
+    main.py                       CLI batch entry point (this is what `p-tri` runs)
+    agents/delegator.py           Agent 1: classify + reassess
+    agents/specialist.py          Agent 2..N: per-specialty consultation
+generate_samples.py                dev helper: regenerates the 5 sample reports
 ```
 
 ## Extending
