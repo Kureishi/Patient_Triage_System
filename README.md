@@ -63,6 +63,11 @@ pip install -e .
 
 `p-tri` is exactly `python main.py` from earlier — same CLI, same flags —
 just installed as a proper command instead of a script you invoke by path.
+
+A pre-built wheel is also included at `dist/patient_triage-0.1.0-py3-none-any.whl`,
+installable directly with:
+```bash
+pip install dist/patient_triage-0.1.0-py3-none-any.whl
 ```
 
 ### LLM backend (swappable — pick one via `--backend`)
