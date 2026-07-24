@@ -33,19 +33,70 @@
         </form>
         <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="upload-folder-form">
           <label class="upload-label" for="report-folder">Or choose a whole folder:</label>
-          <input id="report-folder" type="file" name="report" webkitdirectory directory multiple>
+          <input id="report-folder" type="file" name="report" webkitdirectory directory multiple class="visually-hidden-input">
+          <label for="report-folder" class="fake-file-btn">Choose Folder</label>
+          <span id="folder-file-summary" class="file-summary">No folder chosen</span>
           <button type="submit">Upload folder</button>
         </form>
       </section>
+
+      <script>
+        document.getElementById('report-folder').addEventListener('change', function (e) {
+          var n = e.target.files.length;
+          document.getElementById('folder-file-summary').textContent =
+            n === 0 ? 'No folder chosen' : (n + ' file' + (n === 1 ? '' : 's') + ' selected');
+        });
+
+        var processAllBtn = document.getElementById('process-all-btn');
+        if (processAllBtn) {
+          processAllBtn.addEventListener('click', function () {
+            processAllBtn.disabled = true;
+            fetch("{{ url_for('process_all_start') }}", { method: 'POST' })
+              .then(function (r) { return r.json(); })
+              .then(function (data) {
+                if (data.total === 0) {
+                  processAllBtn.disabled = false;
+                  return;
+                }
+                document.getElementById('process-all-progress').style.display = 'block';
+                pollProcessAllStatus();
+              })
+              .catch(function () { processAllBtn.disabled = false; });
+          });
+        }
+
+        function pollProcessAllStatus() {
+          fetch("{{ url_for('process_all_status') }}")
+            .then(function (r) { return r.json(); })
+            .then(function (state) {
+              var pct = state.total ? Math.round((state.current / state.total) * 100) : 0;
+              document.getElementById('process-all-bar').style.width = pct + '%';
+              document.getElementById('process-all-label').textContent =
+                state.running
+                  ? ('Processing ' + state.current + '/' + state.total + ': ' + (state.current_file || ''))
+                  : ('Done — ' + state.succeeded.length + ' succeeded, ' + state.failed.length + ' failed');
+
+              if (state.running) {
+                setTimeout(pollProcessAllStatus, 500);
+              } else {
+                setTimeout(function () { window.location.reload(); }, 800);
+              }
+            });
+        }
+      </script>
 
       <section>
         <div class="section-header">
           <h2>Input reports ({{ inputs|length }})</h2>
           {% if inputs %}
-            <form action="{{ url_for('process_all') }}" method="post">
-              <button type="submit" class="small-btn">Process All</button>
-            </form>
+            <button type="button" id="process-all-btn" class="small-btn">Process All</button>
           {% endif %}
+        </div>
+        <div id="process-all-progress" class="progress-container" style="display:none">
+          <div class="progress-bar-track">
+            <div id="process-all-bar" class="progress-bar-fill"></div>
+          </div>
+          <span id="process-all-label" class="progress-label"></span>
         </div>
         <ul class="file-list">
           {% for f in inputs %}

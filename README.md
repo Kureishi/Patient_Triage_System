@@ -44,17 +44,22 @@ and regulatory review before touching real patient care.
                     END → PDF written
 ```
 
-The reassessment loop is a genuine cycle in the graph (requirement 4), capped
+The reassessment loop is a genuine cycle in the graph, capped
 at `MAX_REASSESSMENT_ATTEMPTS` (default 3) per case — after that, the case is
 escalated to "requires human physician review" instead of looping forever.
 
 Multiple ailments from one report are processed in **severity-priority
-order** (severe → major → minor), satisfying requirement (3).
+order** (severe → major → minor).
 
 ## Setup
 
-Install the package (this registers the `p-tri` command on your PATH):
+Install the package (this registers the `p-tri` and `p-tri-ui` commands on your PATH):
 
+```bash
+pip install patient-triage
+```
+
+Or, if you've cloned this project instead:
 ```bash
 pip install .            # from inside this project folder
 # or, for local development with live-reload on code changes:
@@ -63,12 +68,6 @@ pip install -e .
 
 `p-tri` is exactly `python main.py` from earlier — same CLI, same flags —
 just installed as a proper command instead of a script you invoke by path.
-
-A pre-built wheel is also included at `dist/patient_triage-0.1.0-py3-none-any.whl`,
-installable directly with:
-```bash
-pip install dist/patient_triage-0.1.0-py3-none-any.whl
-```
 
 ### LLM backend (swappable — pick one via `--backend`)
 

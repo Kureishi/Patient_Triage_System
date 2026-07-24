@@ -98,7 +98,7 @@ def node_specialist(state: CaseState, backend) -> dict:
 
 
 def node_reassess(state: CaseState, backend) -> dict:
-    """This is the hand-back-to-Agent-1 step (requirement 4)."""
+    """This is the hand-back-to-Agent-1 step."""
     case = state["current_case"]
     feedback = state.get("_feedback", "")
     updated = reassess_case(backend, case, feedback)

@@ -16,6 +16,8 @@ import sys
 import glob
 import traceback
 
+from tqdm import tqdm
+
 from . import config
 from .llm_backends import get_backend
 from .pdf_utils import extract_text_from_pdf
@@ -26,9 +28,7 @@ from .pipeline import process_report
 
 def process_one(app, backend, conn, pdf_path: str, output_dir: str):
     patient_id = os.path.splitext(os.path.basename(pdf_path))[0]
-    print(f"\n--- Processing {pdf_path} (patient_id={patient_id}) ---")
     out_path = process_report(app, pdf_path, output_dir, conn)
-    print(f"  -> wrote {out_path}")
     return out_path
 
 
@@ -60,13 +60,16 @@ def main():
         sys.exit(0)
 
     successes, failures = 0, 0
-    for pdf_path in pdf_files:
+    progress = tqdm(pdf_files, desc="Processing reports", unit="report")
+    for pdf_path in progress:
+        progress.set_postfix_str(os.path.basename(pdf_path))
         try:
-            process_one(app, backend, conn, pdf_path, args.output_dir)
+            out_path = process_one(app, backend, conn, pdf_path, args.output_dir)
+            progress.write(f"  -> wrote {out_path}")
             successes += 1
         except Exception as e:
             failures += 1
-            print(f"  !! FAILED on {pdf_path}: {e}")
+            progress.write(f"  !! FAILED on {pdf_path}: {e}")
             traceback.print_exc()
 
     print(f"\nDone. {successes} succeeded, {failures} failed. Output in: {args.output_dir}")

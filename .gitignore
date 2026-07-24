@@ -1,5 +1,7 @@
 *.db
 output_recommendations
 __pycache__
+dist
 pyproject.toml
 generate_samples.py
+*.egg-info

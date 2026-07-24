@@ -12,8 +12,9 @@ This is a local single-user tool -- not hardened for multi-user or
 internet-facing deployment (see README before exposing it beyond localhost).
 """
 import os
+import threading
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, send_file, flash
+from flask import Flask, render_template, request, redirect, url_for, send_file, flash, jsonify
 
 from .. import config
 from ..llm_backends import get_backend
@@ -47,6 +48,34 @@ def create_app():
 
     def list_pdfs(d):
         return sorted(f for f in os.listdir(d) if f.lower().endswith(".pdf"))
+
+    # Shared state for the "Process All" background job, so the browser can
+    # poll for live progress instead of blocking on one long HTTP request.
+    job_lock = threading.Lock()
+    job_state = {
+        "running": False,
+        "total": 0,
+        "current": 0,
+        "current_file": None,
+        "succeeded": [],
+        "failed": [],
+    }
+
+    def _run_batch_job(pending_files):
+        for i, fname in enumerate(pending_files, start=1):
+            with job_lock:
+                job_state["current"] = i
+                job_state["current_file"] = fname
+            try:
+                process_report(graph_app, os.path.join(input_dir, fname), output_dir, conn)
+                with job_lock:
+                    job_state["succeeded"].append(fname)
+            except Exception as e:
+                with job_lock:
+                    job_state["failed"].append(f"{fname} ({e})")
+        with job_lock:
+            job_state["running"] = False
+            job_state["current_file"] = None
 
     @app.route("/")
     def index():
@@ -108,30 +137,32 @@ def create_app():
             flash(f"Failed to process {filename}: {e}", "error")
         return redirect(url_for("index"))
 
-    @app.route("/process_all", methods=["POST"])
-    def process_all():
-        inputs = list_pdfs(input_dir)
-        outputs = list_pdfs(output_dir)
-        already_done = {os.path.splitext(o)[0].removesuffix("_recommendation") for o in outputs}
-        pending = [f for f in inputs if os.path.splitext(f)[0] not in already_done]
+    @app.route("/process_all/start", methods=["POST"])
+    def process_all_start():
+        with job_lock:
+            if job_state["running"]:
+                return jsonify({"error": "A batch job is already running."}), 409
 
-        if not pending:
-            flash("Nothing to process — all reports already have a recommendation.", "ok")
-            return redirect(url_for("index"))
+            inputs = list_pdfs(input_dir)
+            outputs = list_pdfs(output_dir)
+            already_done = {os.path.splitext(o)[0].removesuffix("_recommendation") for o in outputs}
+            pending = [f for f in inputs if os.path.splitext(f)[0] not in already_done]
 
-        succeeded, failed = [], []
-        for f in pending:
-            try:
-                process_report(graph_app, os.path.join(input_dir, f), output_dir, conn)
-                succeeded.append(f)
-            except Exception as e:
-                failed.append(f"{f} ({e})")
+            if not pending:
+                return jsonify({"total": 0})
 
-        if succeeded:
-            flash(f"Processed {len(succeeded)} report(s): {', '.join(succeeded)}.", "ok")
-        if failed:
-            flash(f"Failed on {len(failed)} report(s): {', '.join(failed)}.", "error")
-        return redirect(url_for("index"))
+            job_state.update({
+                "running": True, "total": len(pending), "current": 0,
+                "current_file": None, "succeeded": [], "failed": [],
+            })
+
+        threading.Thread(target=_run_batch_job, args=(pending,), daemon=True).start()
+        return jsonify({"total": len(pending)})
+
+    @app.route("/process_all/status")
+    def process_all_status():
+        with job_lock:
+            return jsonify(dict(job_state))
 
     @app.route("/view/<kind>/<path:filename>")
     def view(kind, filename):
