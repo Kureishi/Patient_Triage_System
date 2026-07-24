@@ -65,13 +65,30 @@ def create_app():
 
     @app.route("/upload", methods=["POST"])
     def upload():
-        file = request.files.get("report")
-        if not file or not file.filename.lower().endswith(".pdf"):
-            flash("Please choose a .pdf file to upload.", "error")
+        files = [f for f in request.files.getlist("report") if f and f.filename]
+        if not files:
+            flash("Please choose one or more .pdf files to upload.", "error")
             return redirect(url_for("index"))
-        name = secure_filename(file.filename)
-        file.save(os.path.join(input_dir, name))
-        flash(f"Uploaded {name}.", "ok")
+
+        saved, skipped = [], []
+        for file in files:
+            # webkitdirectory uploads send a relative path (e.g. "myfolder/report.pdf");
+            # secure_filename collapses that to a safe bare filename.
+            original_name = file.filename
+            if not original_name.lower().endswith(".pdf"):
+                skipped.append(original_name)
+                continue
+            name = secure_filename(os.path.basename(original_name))
+            if not name:
+                skipped.append(original_name)
+                continue
+            file.save(os.path.join(input_dir, name))
+            saved.append(name)
+
+        if saved:
+            flash(f"Uploaded {len(saved)} report(s): {', '.join(saved)}.", "ok")
+        if skipped:
+            flash(f"Skipped {len(skipped)} non-PDF file(s).", "error")
         return redirect(url_for("index"))
 
     @app.route("/process/<path:filename>", methods=["POST"])
@@ -91,6 +108,31 @@ def create_app():
             flash(f"Failed to process {filename}: {e}", "error")
         return redirect(url_for("index"))
 
+    @app.route("/process_all", methods=["POST"])
+    def process_all():
+        inputs = list_pdfs(input_dir)
+        outputs = list_pdfs(output_dir)
+        already_done = {os.path.splitext(o)[0].removesuffix("_recommendation") for o in outputs}
+        pending = [f for f in inputs if os.path.splitext(f)[0] not in already_done]
+
+        if not pending:
+            flash("Nothing to process — all reports already have a recommendation.", "ok")
+            return redirect(url_for("index"))
+
+        succeeded, failed = [], []
+        for f in pending:
+            try:
+                process_report(graph_app, os.path.join(input_dir, f), output_dir, conn)
+                succeeded.append(f)
+            except Exception as e:
+                failed.append(f"{f} ({e})")
+
+        if succeeded:
+            flash(f"Processed {len(succeeded)} report(s): {', '.join(succeeded)}.", "ok")
+        if failed:
+            flash(f"Failed on {len(failed)} report(s): {', '.join(failed)}.", "error")
+        return redirect(url_for("index"))
+
     @app.route("/view/<kind>/<path:filename>")
     def view(kind, filename):
         base = input_dir if kind == "input" else output_dir
@@ -100,8 +142,10 @@ def create_app():
             return "Invalid file", 400
         if not os.path.isfile(path):
             return "Not found", 404
-        # inline (not as_attachment) so the browser renders it instead of downloading it
-        return send_file(path, mimetype="application/pdf")
+        # inline (not as_attachment) so the browser renders it instead of downloading it;
+        # download_name gives the browser a real filename to fall back on if the PDF's
+        # own Title metadata is missing.
+        return send_file(path, mimetype="application/pdf", download_name=os.path.basename(path))
 
     return app
 

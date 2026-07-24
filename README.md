@@ -67,7 +67,7 @@ just installed as a proper command instead of a script you invoke by path.
 A pre-built wheel is also included at `dist/patient_triage-0.1.0-py3-none-any.whl`,
 installable directly with:
 ```bash
-pip install dist/patient_triage-0.2.0-py3-none-any.whl
+pip install dist/patient_triage-0.1.0-py3-none-any.whl
 ```
 
 ### LLM backend (swappable — pick one via `--backend`)
@@ -94,11 +94,14 @@ TRIAGE_LLM_BACKEND=anthropic PORT=8080 p-tri-ui   # override backend / port
 ```
 
 What it does:
-- **Upload** — drop a patient report PDF in via the browser
+- **Upload** — choose one or more PDF files, or select an entire folder (via
+  the "Or choose a whole folder" option), and upload them all in one go.
+  Non-PDF files in a folder selection are silently skipped.
 - **Process** — click "Process" next to any un-processed report to run it
-  through the same graph the CLI uses (shared code path — see `pipeline.py`)
+  through the same graph the CLI uses (shared code path — see `pipeline.py`),
+  or click **Process All** to run every un-processed report in one click.
 - **View** — click any input report or generated recommendation to load it
-  in the right-hand pane
+  in the right-hand pane, titled with its actual name (not "(anonymous)").
 
 This is a local, single-user development tool — the dev server it runs on
 isn't hardened for multi-user or internet-facing use. If you want to expose

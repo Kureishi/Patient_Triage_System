@@ -25,15 +25,28 @@
     <aside class="sidebar">
 
       <section>
-        <h2>Upload a report</h2>
+        <h2>Upload reports</h2>
         <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
-          <input type="file" name="report" accept="application/pdf" required>
+          <label class="upload-label" for="report-files">Choose one or more files:</label>
+          <input id="report-files" type="file" name="report" accept="application/pdf" multiple>
           <button type="submit">Upload</button>
+        </form>
+        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="upload-folder-form">
+          <label class="upload-label" for="report-folder">Or choose a whole folder:</label>
+          <input id="report-folder" type="file" name="report" webkitdirectory directory multiple>
+          <button type="submit">Upload folder</button>
         </form>
       </section>
 
       <section>
-        <h2>Input reports ({{ inputs|length }})</h2>
+        <div class="section-header">
+          <h2>Input reports ({{ inputs|length }})</h2>
+          {% if inputs %}
+            <form action="{{ url_for('process_all') }}" method="post">
+              <button type="submit" class="small-btn">Process All</button>
+            </form>
+          {% endif %}
+        </div>
         <ul class="file-list">
           {% for f in inputs %}
             <li>

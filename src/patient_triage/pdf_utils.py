@@ -39,7 +39,9 @@ def generate_recommendation_pdf(output_path: str, patient_id: str, source_file: 
     audit_log: list[str]
     """
     doc = SimpleDocTemplate(output_path, pagesize=letter,
-                             topMargin=0.75 * inch, bottomMargin=0.75 * inch)
+                             topMargin=0.75 * inch, bottomMargin=0.75 * inch,
+                             title=f"Treatment Recommendation - {patient_id}",
+                             author="Patient Triage System")
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("TitleX", parent=styles["Title"], fontSize=18)
     h2 = ParagraphStyle("H2", parent=styles["Heading2"], spaceBefore=14)

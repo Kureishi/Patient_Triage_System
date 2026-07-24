@@ -51,6 +51,13 @@ header h1 { font-size: 18px; margin: 0; font-weight: 600; }
   margin: 0 0 10px;
 }
 .sidebar form input[type="file"] { font-size: 13px; max-width: 100%; }
+.upload-label {
+  display: block;
+  font-size: 12px;
+  color: #6e6e73;
+  margin-bottom: 4px;
+}
+.upload-folder-form { margin-top: 14px; }
 .sidebar form button, .small-btn {
   background: #0071e3;
   color: white;
@@ -59,8 +66,18 @@ header h1 { font-size: 18px; margin: 0; font-weight: 600; }
   padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
+  margin-top: 6px;
 }
 .sidebar form button:hover, .small-btn:hover { background: #0077ed; }
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.section-header h2 { margin: 0 0 10px; }
+.section-header form { margin: 0 0 10px; }
 
 .file-list { list-style: none; margin: 0; padding: 0; }
 .file-list li {
