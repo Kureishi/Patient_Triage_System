@@ -1,6 +1,7 @@
 *.db
 output_recommendations
 __pycache__
+build
 dist
 pyproject.toml
 generate_samples.py
