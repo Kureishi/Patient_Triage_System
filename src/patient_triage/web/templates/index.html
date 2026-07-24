@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Patient Triage</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>Patient Report Triage</h1>
+    <span class="backend-badge">backend: {{ backend_name }}</span>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-container">
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="layout">
+    <aside class="sidebar">
+
+      <section>
+        <h2>Upload a report</h2>
+        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+          <input type="file" name="report" accept="application/pdf" required>
+          <button type="submit">Upload</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Input reports ({{ inputs|length }})</h2>
+        <ul class="file-list">
+          {% for f in inputs %}
+            <li>
+              <a class="view-link" href="{{ url_for('view', kind='input', filename=f) }}" target="pdfFrame">
+                {{ f }}
+              </a>
+              <div class="row-actions">
+                {% set stem = f.rsplit('.', 1)[0] %}
+                {% if stem in has_recommendation %}
+                  <span class="tag tag-done">processed</span>
+                {% else %}
+                  <form action="{{ url_for('process', filename=f) }}" method="post" style="display:inline">
+                    <button type="submit" class="small-btn">Process</button>
+                  </form>
+                {% endif %}
+              </div>
+            </li>
+          {% else %}
+            <li class="empty">No reports uploaded yet.</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section>
+        <h2>Recommendations ({{ outputs|length }})</h2>
+        <ul class="file-list">
+          {% for f in outputs %}
+            <li>
+              <a class="view-link" href="{{ url_for('view', kind='output', filename=f) }}" target="pdfFrame">
+                {{ f }}
+              </a>
+            </li>
+          {% else %}
+            <li class="empty">No recommendations generated yet.</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+    </aside>
+
+    <main class="viewer-pane">
+      <iframe name="pdfFrame" title="PDF viewer" class="pdf-frame"
+              src="about:blank"></iframe>
+    </main>
+  </div>
+</body>
+</html>

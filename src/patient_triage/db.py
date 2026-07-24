@@ -5,7 +5,7 @@ from . import config
 
 def init_db(path: str = None):
     path = path or config.DB_PATH
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS case_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

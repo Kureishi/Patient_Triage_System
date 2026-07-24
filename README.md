@@ -67,7 +67,7 @@ just installed as a proper command instead of a script you invoke by path.
 A pre-built wheel is also included at `dist/patient_triage-0.1.0-py3-none-any.whl`,
 installable directly with:
 ```bash
-pip install dist/patient_triage-0.1.0-py3-none-any.whl
+pip install dist/patient_triage-0.2.0-py3-none-any.whl
 ```
 
 ### LLM backend (swappable — pick one via `--backend`)
@@ -81,7 +81,31 @@ pip install dist/patient_triage-0.1.0-py3-none-any.whl
 - **`mock`**: deterministic canned responses, no model required — useful for
   testing the graph wiring offline.
 
-## Usage
+## Web UI
+
+For a visual alternative to the CLI, `p-tri-ui` runs a small local Flask
+server where you can upload reports, trigger processing, and view any PDF
+— input report or generated recommendation — inline in the browser (using
+the browser's native PDF viewer, no extra JS library required).
+
+```bash
+p-tri-ui                                    # http://127.0.0.1:5000
+TRIAGE_LLM_BACKEND=anthropic PORT=8080 p-tri-ui   # override backend / port
+```
+
+What it does:
+- **Upload** — drop a patient report PDF in via the browser
+- **Process** — click "Process" next to any un-processed report to run it
+  through the same graph the CLI uses (shared code path — see `pipeline.py`)
+- **View** — click any input report or generated recommendation to load it
+  in the right-hand pane
+
+This is a local, single-user development tool — the dev server it runs on
+isn't hardened for multi-user or internet-facing use. If you want to expose
+it beyond your own machine, put a production WSGI server (gunicorn/waitress)
+and proper authentication in front of it first.
+
+## CLI Usage
 
 ```bash
 # Put patient report PDFs in input_reports/, then:
@@ -106,7 +130,7 @@ auditing.
 ## Project layout
 
 ```
-pyproject.toml                    packaging metadata + the `p-tri` entry point
+pyproject.toml                    packaging metadata + the `p-tri`/`p-tri-ui` entry points
 src/patient_triage/
     config.py                     specialties, severity levels, retry limits, backend config
     schemas.py                    Pydantic/TypedDict data contracts between agents
@@ -115,9 +139,13 @@ src/patient_triage/
     pdf_utils.py                  PDF text extraction + recommendation PDF generation
     db.py                         SQLite audit logging
     graph.py                      LangGraph wiring (the cyclic state machine)
+    pipeline.py                   shared "process one report" logic (used by CLI + UI)
     main.py                       CLI batch entry point (this is what `p-tri` runs)
     agents/delegator.py           Agent 1: classify + reassess
     agents/specialist.py          Agent 2..N: per-specialty consultation
+    web/app.py                    Flask web UI (this is what `p-tri-ui` runs)
+    web/templates/index.html      upload form, file lists, PDF viewer pane
+    web/static/style.css          UI styling
 generate_samples.py                dev helper: regenerates the 5 sample reports
 ```
 
