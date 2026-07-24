@@ -102,6 +102,14 @@ What it does:
 - **View** — click any input report or generated recommendation to load it
   in the right-hand pane, titled with its actual name (not "(anonymous)").
 
+**Note:** the "Input reports" and "Recommendations" lists are just a live
+directory listing of `input_reports/` and `output_recommendations/` relative
+to wherever you launch `p-tri`/`p-tri-ui` from (or `TRIAGE_INPUT_DIR` /
+`TRIAGE_OUTPUT_DIR` if set) — there's no database behind it. This repo ships
+with the 5 sample reports from `generate_samples.py` already sitting in
+`input_reports/`, so they'll show up on first launch until you delete them
+or run everything from a different working directory.
+
 This is a local, single-user development tool — the dev server it runs on
 isn't hardened for multi-user or internet-facing use. If you want to expose
 it beyond your own machine, put a production WSGI server (gunicorn/waitress)
