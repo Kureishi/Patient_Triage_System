@@ -8,20 +8,85 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 import pdfplumber
 
+# A page with fewer than this many characters of extracted text is treated
+# as "no real text layer" -- either a scanned/photographed page, or one
+# that's essentially blank. Real report pages run to hundreds of characters,
+# so this comfortably avoids false positives on legitimate short pages while
+# still catching truly empty/scanned ones.
+MIN_TEXT_CHARS_PER_PAGE = 20
 
-def extract_text_from_pdf(path: str) -> str:
+
+def extract_text_from_pdf(path: str, ocr_language: str = "eng") -> str:
+    """
+    Extracts text from a PDF, falling back to OCR (per page) for any page
+    that has no meaningful text layer -- i.e. scanned or photographed pages.
+    Pages with a normal text layer are never OCR'd; this only kicks in for
+    the pages that actually need it, and only if the OCR extras are
+    installed (see the 'ocr' optional dependency group + a system
+    tesseract-ocr install).
+    """
     text_parts = []
+    scanned_page_indices = []
+
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text() or ""
-            text_parts.append(page_text)
-    text = "\n".join(text_parts).strip()
+        for i, page in enumerate(pdf.pages):
+            page_text = (page.extract_text() or "").strip()
+            if len(page_text) < MIN_TEXT_CHARS_PER_PAGE:
+                scanned_page_indices.append(i)
+                text_parts.append(None)  # filled in by OCR below, if needed
+            else:
+                text_parts.append(page_text)
+
+    if scanned_page_indices:
+        text_parts = _ocr_fill_pages(path, text_parts, scanned_page_indices, ocr_language)
+
+    text = "\n".join(t for t in text_parts if t).strip()
     if not text:
         raise ValueError(
-            f"No extractable text found in {path}. If this is a scanned "
-            f"image PDF, OCR (e.g. pytesseract) would need to be added."
+            f"No extractable text found in {path}, even after attempting OCR "
+            f"on every page. The file may be blank, corrupted, or too low-"
+            f"resolution/low-contrast for OCR to read."
         )
     return text
+
+
+def _ocr_fill_pages(path: str, text_parts: list, page_indices: list, ocr_language: str) -> list:
+    """
+    Rasterizes each listed page (via PyMuPDF -- no system Poppler dependency
+    needed, unlike pdf2image) and runs Tesseract OCR on it (via pytesseract,
+    which does need the tesseract-ocr binary installed on the system).
+    Imports are lazy so the base install doesn't require any of this unless
+    a scanned PDF is actually encountered.
+    """
+    try:
+        import fitz  # PyMuPDF
+        import pytesseract
+        from PIL import Image
+        import io
+    except ImportError as e:
+        raise ImportError(
+            "This PDF appears to be scanned/image-based (no text layer on "
+            f"{len(page_indices)} page(s)), but OCR support isn't installed. "
+            "Install it with: pip install patient-triage[ocr]"
+        ) from e
+
+    try:
+        doc = fitz.open(path)
+        for i in page_indices:
+            pixmap = doc[i].get_pixmap(dpi=300)
+            image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+            ocr_text = pytesseract.image_to_string(image, lang=ocr_language).strip()
+            text_parts[i] = ocr_text
+        doc.close()
+    except pytesseract.TesseractNotFoundError as e:
+        raise RuntimeError(
+            "pytesseract is installed, but the tesseract-ocr binary itself "
+            "isn't on this system's PATH. Install it with your OS package "
+            "manager, e.g. `apt-get install tesseract-ocr` on Debian/Ubuntu "
+            "or `brew install tesseract` on macOS."
+        ) from e
+
+    return text_parts
 
 
 SEVERITY_COLORS = {

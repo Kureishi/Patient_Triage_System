@@ -289,9 +289,8 @@ doesn't rely on it.
 
 ## Extending
 
-- **Scanned/image PDFs**: `extract_text_from_pdf` raises if no text layer is
-  found. Add OCR (`pytesseract` + `pdf2image`) as a fallback if your reports
-  come from scanners.
+- **Scanned/image PDFs**: done — see "Scanned/photographed reports (OCR)"
+  below.
 - **New specialties**: add to `SPECIALTIES` in `config.py` — no other code
   changes needed, since the specialist agent is generic and parameterized
   by specialty name.
@@ -302,3 +301,42 @@ doesn't rely on it.
   `web/app.py` and `pipeline.py` with a small storage abstraction — not
   implemented here since a shared mount already solves the multi-machine
   case correctly for a single deployment.
+
+## Scanned/photographed reports (OCR)
+
+`extract_text_from_pdf` (`pdf_utils.py`) checks each page independently: if
+a page has a normal text layer, it's used as-is; if a page has little to no
+extractable text (under ~20 characters — i.e. it's a scanned or
+photographed page with no text layer), that specific page is rasterized and
+run through OCR instead. Native-text and scanned pages can be mixed in the
+same document — verified with a 2-page test PDF (one real text page, one
+image-only page) where OCR ran only on the scanned page.
+
+**Install:**
+```bash
+pip install patient-triage[ocr]
+```
+Also needs the `tesseract-ocr` binary itself, which isn't pip-installable:
+```bash
+apt-get install tesseract-ocr     # Debian/Ubuntu
+brew install tesseract            # macOS
+```
+
+**How it works:** pages needing OCR are rendered to images with PyMuPDF (no
+system Poppler dependency, unlike `pdf2image`) at 300 DPI, then read with
+`pytesseract` (default language `eng` — pass `ocr_language=` to
+`extract_text_from_pdf` for others, provided the matching Tesseract
+language pack is installed).
+
+**If the OCR extras aren't installed** and a scanned page is encountered,
+you get a clear error telling you to `pip install patient-triage[ocr]`,
+rather than a confusing import crash — verified directly by simulating the
+dependencies being absent.
+
+Verified end-to-end: built a genuine image-only PDF (rasterized an existing
+sample report to an image, then rebuilt a PDF containing only that image —
+confirmed zero extractable text beforehand), ran it through OCR and got the
+original patient details back correctly, then ran that same file through
+the actual web app's upload → enqueue → process → recommendation flow and
+confirmed it completed successfully, indistinguishable from a native-text
+PDF to the rest of the pipeline.
