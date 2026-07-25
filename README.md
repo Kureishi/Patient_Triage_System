@@ -69,6 +69,15 @@ pip install -e .
 `p-tri` is exactly `python main.py` from earlier — same CLI, same flags —
 just installed as a proper command instead of a script you invoke by path.
 
+**`requirements.txt`** is also kept up to date and lists every dependency
+this project uses — core, plus the `scale` (Postgres/Redis/RQ) and `ocr`
+(PyMuPDF/pytesseract/Pillow) extras, and `pytest` for development — as a
+single flat file, if you'd rather `pip install -r requirements.txt` than use
+`pyproject.toml`'s extras syntax (`.[scale,ocr]`). Both are kept in sync;
+use whichever fits your workflow. Note it installs *everything*, including
+the optional pieces — trim the `scale`/`ocr` sections out of the file first
+if you only want the core setup.
+
 ### LLM backend (swappable — pick one via `--backend`)
 
 - **`lmstudio`** (default): point at a local model served by
@@ -320,6 +329,27 @@ Also needs the `tesseract-ocr` binary itself, which isn't pip-installable:
 ```bash
 apt-get install tesseract-ocr     # Debian/Ubuntu
 brew install tesseract            # macOS
+```
+On Windows, there's no official installer from the Tesseract project itself
+— two commonly used sources:
+- [UB-Mannheim Tesseract builds](https://github.com/UB-Mannheim/tesseract/wiki)
+  (`.exe` installer, most frequently recommended)
+- [Tesseract OCR on SourceForge](https://sourceforge.net/projects/tesseract-ocr.mirror/)
+  (an official mirror of the [tesseract-ocr GitHub project](https://github.com/tesseract-ocr/tesseract),
+  also has Windows builds)
+
+**If you get `pytesseract can't find/run the tesseract-ocr binary`** even
+though `tesseract --version` works in your terminal: this is almost always
+a stale `PATH` in whichever process is running the app — Windows in
+particular doesn't propagate `PATH` changes to processes that were already
+running when Tesseract was installed. Fully restart the terminal/IDE
+running `p-tri`/`p-tri-ui` first. If that doesn't fix it, set `TESSERACT_CMD`
+to the binary's full path and it'll be used regardless of `PATH`:
+```powershell
+$env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"   # Windows
+```
+```bash
+export TESSERACT_CMD=/usr/local/bin/tesseract                          # macOS/Linux
 ```
 
 **How it works:** pages needing OCR are rendered to images with PyMuPDF (no

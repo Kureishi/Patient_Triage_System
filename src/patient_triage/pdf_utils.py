@@ -58,6 +58,8 @@ def _ocr_fill_pages(path: str, text_parts: list, page_indices: list, ocr_languag
     Imports are lazy so the base install doesn't require any of this unless
     a scanned PDF is actually encountered.
     """
+    import os
+
     try:
         import fitz  # PyMuPDF
         import pytesseract
@@ -70,6 +72,15 @@ def _ocr_fill_pages(path: str, text_parts: list, page_indices: list, ocr_languag
             "Install it with: pip install patient-triage[ocr]"
         ) from e
 
+    # Explicit override, mainly for Windows: `tesseract --version` working in
+    # your terminal doesn't guarantee the Python process sees the same PATH
+    # (especially if Tesseract was installed after that process/IDE started --
+    # Windows doesn't propagate PATH changes to already-running processes).
+    # Set this to the full path to tesseract.exe to sidestep PATH entirely.
+    tesseract_cmd = os.environ.get("TESSERACT_CMD")
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+
     try:
         doc = fitz.open(path)
         for i in page_indices:
@@ -80,10 +91,14 @@ def _ocr_fill_pages(path: str, text_parts: list, page_indices: list, ocr_languag
         doc.close()
     except pytesseract.TesseractNotFoundError as e:
         raise RuntimeError(
-            "pytesseract is installed, but the tesseract-ocr binary itself "
-            "isn't on this system's PATH. Install it with your OS package "
-            "manager, e.g. `apt-get install tesseract-ocr` on Debian/Ubuntu "
-            "or `brew install tesseract` on macOS."
+            "pytesseract can't find/run the tesseract-ocr binary. If "
+            "`tesseract --version` works in your terminal, this is usually "
+            "a stale PATH in whatever process is running this app (common on "
+            "Windows if Tesseract was installed after that process started) "
+            "-- try fully restarting the terminal/IDE running this. If that "
+            "doesn't help, set the TESSERACT_CMD environment variable to the "
+            "full path of the binary, e.g. on Windows: "
+            r'TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"'
         ) from e
 
     return text_parts
