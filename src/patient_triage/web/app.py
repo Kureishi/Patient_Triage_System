@@ -2,19 +2,16 @@
 Local web UI / service for the triage system.
 
 - Upload patient report PDFs
-- Enqueue processing jobs onto a durable, SQLite-backed queue
-- A single persistent background worker (worker.run_worker_loop) consumes
-  that queue for the lifetime of the process -- jobs survive a restart
-  (see db.recover_interrupted_jobs), and keep progressing even if no
-  browser tab is open watching them.
+- Enqueue processing jobs onto a durable job queue (SQLite by default;
+  Postgres + Redis/RQ for multi-machine -- see config.QUEUE_BACKEND /
+  config.DB_BACKEND and README "Scaling to multiple machines")
 - View any input report or generated recommendation inline in the browser,
   using the browser's native PDF viewer inside an <iframe> -- no extra
   JS library needed, works in Chrome/Firefox/Edge/Safari out of the box.
 
 Run with: p-tri-ui
-Single-machine, single-process design: no auth, and the SQLite job queue
-assumes one worker thread. See README ("Running as a persistent service")
-before exposing this beyond localhost or scaling it out.
+Default mode is single-machine (SQLite + in-process worker thread, no auth).
+See README before exposing this beyond localhost or scaling it out.
 """
 import os
 import uuid
@@ -47,20 +44,27 @@ def create_app():
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
+    distributed = config.QUEUE_BACKEND == "distributed"
+
     backend_name = os.environ.get("TRIAGE_LLM_BACKEND", config.DEFAULT_BACKEND)
-    backend = get_backend(backend_name)
-    graph_app = build_graph(backend)
     conn = db_module.init_db()
 
-    # Requeue anything left "running" from a previous crash, then start the
-    # persistent worker. This thread runs for the life of the process,
-    # independent of any single HTTP request.
-    recovered = db_module.recover_interrupted_jobs(conn)
-    if recovered:
-        print(f"Recovered {recovered} job(s) interrupted by a previous shutdown/crash.")
-    threading.Thread(
-        target=run_worker_loop, args=(conn, graph_app, input_dir, output_dir), daemon=True,
-    ).start()
+    if distributed:
+        # In distributed mode, actual graph execution happens in worker
+        # processes (see tasks.py), not here -- this process only enqueues
+        # jobs and serves the UI, so it doesn't need its own graph/backend.
+        print(f"Running in DISTRIBUTED mode (Postgres + Redis/RQ, queue='{config.RQ_QUEUE_NAME}').")
+    else:
+        graph_app = build_graph(get_backend(backend_name))
+        # Requeue anything left "running" from a previous crash, then start
+        # the persistent worker. This thread runs for the life of the
+        # process, independent of any single HTTP request.
+        recovered = db_module.recover_interrupted_jobs(conn)
+        if recovered:
+            print(f"Recovered {recovered} job(s) interrupted by a previous shutdown/crash.")
+        threading.Thread(
+            target=run_worker_loop, args=(conn, graph_app, input_dir, output_dir), daemon=True,
+        ).start()
 
     def list_pdfs(d):
         return sorted(f for f in os.listdir(d) if f.lower().endswith(".pdf"))
@@ -133,7 +137,13 @@ def create_app():
 
         batch_id = uuid.uuid4().hex
         for f in filenames:
-            db_module.enqueue_job(conn, batch_id, f)
+            job_id = db_module.enqueue_job(conn, batch_id, f)
+            if distributed:
+                # Local import: keeps redis/rq optional for anyone running
+                # the default single-machine mode.
+                from ..queue_backend import get_queue
+                from ..tasks import process_job_task
+                get_queue().enqueue(process_job_task, job_id, job_timeout=600)
 
         return jsonify({"batch_id": batch_id, "total": len(filenames)})
 

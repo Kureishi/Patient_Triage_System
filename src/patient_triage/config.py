@@ -47,3 +47,17 @@ LM_STUDIO_MODEL = os.environ.get("LM_STUDIO_MODEL", "local-model")  # whatever y
 DEFAULT_INPUT_DIR = "input_reports"
 DEFAULT_OUTPUT_DIR = "output_recommendations"
 DB_PATH = "triage_cases.db"
+
+# ---- Job store backend (swappable, single-machine vs multi-machine) ----
+# "sqlite" (default): single-machine, in-process worker thread (worker.py).
+# "postgres": durable job/case store usable from multiple machines at once.
+DB_BACKEND = os.environ.get("TRIAGE_DB_BACKEND", "sqlite").lower()
+DATABASE_URL = os.environ.get("DATABASE_URL", "")  # e.g. postgresql://user:pass@host:5432/patient_triage
+
+# ---- Queue backend (how jobs get dispatched to a worker) ----
+# "local" (default): the in-process worker thread in web/app.py.
+# "distributed": jobs are pushed onto Redis via RQ and picked up by one or
+# more `rq worker` processes, possibly running on other machines.
+QUEUE_BACKEND = os.environ.get("TRIAGE_QUEUE_BACKEND", "local").lower()
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+RQ_QUEUE_NAME = os.environ.get("TRIAGE_RQ_QUEUE", "patient_triage")

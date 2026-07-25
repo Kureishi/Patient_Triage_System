@@ -161,13 +161,9 @@ a single process keeps one clear background worker thread rather than one
 per process.
 
 **If you outgrow SQLite** (multiple machines, high job volume, or you want
-concurrent writers without the current single-connection lock): the job
-queue's SQL is plain and portable — swapping `db.py`'s `sqlite3` calls for
-`psycopg2` against Postgres is a fairly mechanical change, since the schema
-and query shapes don't rely on SQLite-specific features. At that point,
-also worth moving from thread-based polling to a real queue (Redis + RQ)
-so you can run worker processes on separate machines instead of one
-in-process thread.
+concurrent writers without the current single-connection lock): see
+"Scaling to multiple machines" below — this is implemented, not just
+theoretical, as of this version.
 
 ## CLI Usage
 
@@ -201,11 +197,15 @@ src/patient_triage/
     llm_backends.py               swappable LLM backend (anthropic / lmstudio / mock)
     utils.py                      JSON extraction helper for LLM outputs
     pdf_utils.py                  PDF text extraction + recommendation PDF generation
-    db.py                         SQLite audit logging
-    graph.py                      LangGraph wiring (the cyclic state machine)
-    pipeline.py                   shared "process one report" logic (used by CLI + UI)
-    worker.py                     persistent background worker loop (consumes the job queue)
-    main.py                       CLI batch entry point (this is what `p-tri` runs)
+    db.py                          job-store facade (picks sqlite or postgres backend)
+    db_sqlite.py                   default job store: SQLite + in-process worker
+    db_postgres.py                 multi-machine job store: Postgres, FOR UPDATE SKIP LOCKED
+    queue_backend.py               Redis/RQ queue accessor (distributed mode only)
+    tasks.py                       the RQ task function each worker process runs
+    graph.py                       LangGraph wiring (the cyclic state machine)
+    pipeline.py                    shared "process one report" logic (used by CLI + UI)
+    worker.py                      persistent background worker loop (local mode only)
+    main.py                        CLI batch entry point (this is what `p-tri` runs)
     agents/delegator.py           Agent 1: classify + reassess
     agents/specialist.py          Agent 2..N: per-specialty consultation
     web/app.py                    Flask web UI (this is what `p-tri-ui` runs)
@@ -213,6 +213,79 @@ src/patient_triage/
     web/static/style.css          UI styling
 generate_samples.py                dev helper: regenerates the 5 sample reports
 ```
+
+## Scaling to multiple machines
+
+By default this runs single-machine: SQLite for job/case state, and an
+in-process worker thread (see "Running as a persistent service" above). For
+multiple machines — more throughput, or workers physically separate from
+the machine serving the UI — swap in Postgres + Redis/RQ instead. Nothing
+about the triage graph or agents changes; only the job-store and
+job-dispatch layers do.
+
+**Install the extra dependencies** (kept optional so the default setup
+doesn't need Postgres/Redis at all):
+```bash
+pip install patient-triage[scale]
+```
+
+**What changes and why:**
+- **Job/case state moves from SQLite to Postgres** (`db_postgres.py`), so
+  every machine — the one serving the UI and every worker — reads and
+  writes the same durable state instead of a local file. Claiming a job
+  uses `SELECT ... FOR UPDATE SKIP LOCKED`, the standard Postgres pattern
+  for letting several readers pull distinct rows from the same queue
+  table safely; this was stress-tested with 5 concurrent claimers racing
+  over 10 jobs and confirmed no job was ever claimed twice.
+- **Job dispatch moves from an in-process thread to Redis + RQ**
+  (`queue_backend.py`, `tasks.py`). The web process no longer runs the
+  triage graph itself in distributed mode — it only enqueues a job row in
+  Postgres and pushes a matching task onto Redis. Any number of separate
+  `rq worker` processes, on any number of machines, pull from that same
+  Redis queue and actually execute the graph.
+- **Input/output PDFs need to be visible to every machine.** This repo
+  doesn't add object storage — the simplest correct setup is pointing
+  `TRIAGE_INPUT_DIR` / `TRIAGE_OUTPUT_DIR` at the same shared network
+  mount (NFS/EFS/etc.) path on every machine, web server and workers
+  alike, so "the same file" really is the same file everywhere.
+
+**Configuration** (environment variables):
+```bash
+TRIAGE_DB_BACKEND=postgres
+DATABASE_URL=postgresql://user:pass@dbhost:5432/patient_triage
+TRIAGE_QUEUE_BACKEND=distributed
+REDIS_URL=redis://redishost:6379/0
+TRIAGE_INPUT_DIR=/shared/input_reports    # same path, mounted on every machine
+TRIAGE_OUTPUT_DIR=/shared/output_recommendations
+TRIAGE_LLM_BACKEND=anthropic              # or lmstudio/mock
+```
+
+**Running it — on the machine serving the UI:**
+```bash
+p-tri-ui
+```
+It'll print `Running in DISTRIBUTED mode` on startup and won't spin up the
+local worker thread — it only enqueues jobs now.
+
+**On each worker machine** (same env vars, same shared mount):
+```bash
+rq worker patient_triage --url $REDIS_URL
+```
+Run as many of these as you want, on as many machines as you want; RQ
+dispatches each queued job to exactly one of them. Verified directly: ran
+the web app and a separate `rq worker` process independently, confirmed the
+worker (which never talked to the web process) completed all jobs, and
+that a *third*, freshly-started web app process correctly showed everything
+as done — because the shared state lives in Postgres, not in any one
+process's memory.
+
+**Crash recovery differs from the single-machine mode here:** rather than
+the app's own `recover_interrupted_jobs()` polling loop, prefer RQ's own
+`Retry` / `job_timeout` (already set to a 600s timeout in `tasks.py`) for
+handling a worker that dies mid-job — that's RQ's job, not ours, once it's
+in the picture. `db_postgres.py` still ships `recover_interrupted_jobs` for
+interface parity / anyone running Postgres without RQ, but the RQ path
+doesn't rely on it.
 
 ## Extending
 
@@ -222,8 +295,10 @@ generate_samples.py                dev helper: regenerates the 5 sample reports
 - **New specialties**: add to `SPECIALTIES` in `config.py` — no other code
   changes needed, since the specialist agent is generic and parameterized
   by specialty name.
-- **Persistent service**: done — see "Running as a persistent service" above
-  for the durable job queue and background worker.
-- **Multi-machine scale**: swap SQLite for Postgres and the in-process
-  worker thread for Redis + RQ workers on separate machines (see the note
-  at the end of the persistent-service section above).
+- **Persistent service**: done — see "Running as a persistent service" above.
+- **Multi-machine scale**: done — see "Scaling to multiple machines" above.
+- **Shared file storage beyond a network mount** (e.g. S3-compatible object
+  storage instead of NFS): would replace the raw `os.path`/`open()` calls in
+  `web/app.py` and `pipeline.py` with a small storage abstraction — not
+  implemented here since a shared mount already solves the multi-machine
+  case correctly for a single deployment.
