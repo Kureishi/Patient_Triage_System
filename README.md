@@ -296,21 +296,6 @@ in the picture. `db_postgres.py` still ships `recover_interrupted_jobs` for
 interface parity / anyone running Postgres without RQ, but the RQ path
 doesn't rely on it.
 
-## Extending
-
-- **Scanned/image PDFs**: done — see "Scanned/photographed reports (OCR)"
-  below.
-- **New specialties**: add to `SPECIALTIES` in `config.py` — no other code
-  changes needed, since the specialist agent is generic and parameterized
-  by specialty name.
-- **Persistent service**: done — see "Running as a persistent service" above.
-- **Multi-machine scale**: done — see "Scaling to multiple machines" above.
-- **Shared file storage beyond a network mount** (e.g. S3-compatible object
-  storage instead of NFS): would replace the raw `os.path`/`open()` calls in
-  `web/app.py` and `pipeline.py` with a small storage abstraction — not
-  implemented here since a shared mount already solves the multi-machine
-  case correctly for a single deployment.
-
 ## Scanned/photographed reports (OCR)
 
 `extract_text_from_pdf` (`pdf_utils.py`) checks each page independently: if
@@ -370,3 +355,14 @@ original patient details back correctly, then ran that same file through
 the actual web app's upload → enqueue → process → recommendation flow and
 confirmed it completed successfully, indistinguishable from a native-text
 PDF to the rest of the pipeline.
+
+## Extending
+
+- **New specialties**: add to `SPECIALTIES` in `config.py` — no other code
+  changes needed, since the specialist agent is generic and parameterized
+  by specialty name.
+- **Shared file storage beyond a network mount** (e.g. S3-compatible object
+  storage instead of NFS): would replace the raw `os.path`/`open()` calls in
+  `web/app.py` and `pipeline.py` with a small storage abstraction — not
+  implemented here since a shared mount already solves the multi-machine
+  case correctly for a single deployment.
