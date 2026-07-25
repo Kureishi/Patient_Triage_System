@@ -110,10 +110,64 @@ with the 5 sample reports from `generate_samples.py` already sitting in
 `input_reports/`, so they'll show up on first launch until you delete them
 or run everything from a different working directory.
 
-This is a local, single-user development tool — the dev server it runs on
-isn't hardened for multi-user or internet-facing use. If you want to expose
-it beyond your own machine, put a production WSGI server (gunicorn/waitress)
-and proper authentication in front of it first.
+This is a local, single-machine service — the SQLite job queue assumes a
+single worker thread, and there's no auth yet (see "Running as a persistent
+service" below for what changes if you take this further).
+
+## Running as a persistent service
+
+`p-tri-ui` isn't just a request/response script — it runs a persistent
+background worker (`worker.run_worker_loop`) for the lifetime of the
+process, consuming a durable, SQLite-backed job queue (`db.py`'s `jobs`
+table). This is what makes it a *service* rather than a dev tool:
+
+- **Submitting work is decoupled from doing the work.** Clicking "Process"
+  or "Process All" hits `POST /jobs/enqueue`, which just inserts row(s) into
+  the `jobs` table and returns immediately — the actual triage graph runs
+  in the background worker thread, not in the HTTP request.
+- **Jobs survive a restart.** Job state lives in SQLite, not in a Python
+  dict. If you stop and restart `p-tri-ui`, anything still `queued` is
+  still queued; anything caught mid-`running` from a crash gets requeued by
+  `db.recover_interrupted_jobs()` at startup (verified: killing the process
+  mid-job and restarting it against the same database picks the job back
+  up and finishes it).
+- **Work continues without anyone watching.** The worker loop polls the
+  queue on its own timer — a submitted job gets processed whether or not a
+  browser tab is open polling `/jobs/status/<batch_id>` for progress.
+
+**Deploying it as a long-running process** (still single-machine): run it
+under a process supervisor so it survives reboots/crashes and restarts
+automatically, e.g. a `systemd` unit:
+```ini
+[Unit]
+Description=Patient Triage UI
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/p-tri-ui
+Environment=TRIAGE_LLM_BACKEND=anthropic
+Restart=on-failure
+WorkingDirectory=/path/to/your/data
+
+[Install]
+WantedBy=multi-user.target
+```
+Flask's built-in dev server (what `p-tri-ui` runs today) says as much in
+its own startup warning — for anything beyond local use, put it behind a
+production WSGI server instead, e.g. `gunicorn --workers 1 'patient_triage.web.app:create_app()'`.
+Keep `--workers 1`: the job queue is correct with more (job-claiming is a
+proper transaction, so two workers won't double-process the same job), but
+a single process keeps one clear background worker thread rather than one
+per process.
+
+**If you outgrow SQLite** (multiple machines, high job volume, or you want
+concurrent writers without the current single-connection lock): the job
+queue's SQL is plain and portable — swapping `db.py`'s `sqlite3` calls for
+`psycopg2` against Postgres is a fairly mechanical change, since the schema
+and query shapes don't rely on SQLite-specific features. At that point,
+also worth moving from thread-based polling to a real queue (Redis + RQ)
+so you can run worker processes on separate machines instead of one
+in-process thread.
 
 ## CLI Usage
 
@@ -150,6 +204,7 @@ src/patient_triage/
     db.py                         SQLite audit logging
     graph.py                      LangGraph wiring (the cyclic state machine)
     pipeline.py                   shared "process one report" logic (used by CLI + UI)
+    worker.py                     persistent background worker loop (consumes the job queue)
     main.py                       CLI batch entry point (this is what `p-tri` runs)
     agents/delegator.py           Agent 1: classify + reassess
     agents/specialist.py          Agent 2..N: per-specialty consultation
@@ -167,7 +222,8 @@ generate_samples.py                dev helper: regenerates the 5 sample reports
 - **New specialties**: add to `SPECIALTIES` in `config.py` — no other code
   changes needed, since the specialist agent is generic and parameterized
   by specialty name.
-- **Persistent service later**: `graph.py` and `agents/` are already
-  decoupled from the CLI in `main.py`, so wrapping `build_graph()` in a
-  FastAPI endpoint + queue (e.g. Celery/RQ backed by the existing SQLite —
-  or Postgres at that point) is a relatively small step from here.
+- **Persistent service**: done — see "Running as a persistent service" above
+  for the durable job queue and background worker.
+- **Multi-machine scale**: swap SQLite for Postgres and the in-process
+  worker thread for Redis + RQ workers on separate machines (see the note
+  at the end of the persistent-service section above).

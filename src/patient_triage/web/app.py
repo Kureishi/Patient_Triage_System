@@ -1,17 +1,23 @@
 """
-Minimal local web UI for the triage system.
+Local web UI / service for the triage system.
 
 - Upload patient report PDFs
-- Trigger processing (runs the same graph as the CLI, via pipeline.process_report)
+- Enqueue processing jobs onto a durable, SQLite-backed queue
+- A single persistent background worker (worker.run_worker_loop) consumes
+  that queue for the lifetime of the process -- jobs survive a restart
+  (see db.recover_interrupted_jobs), and keep progressing even if no
+  browser tab is open watching them.
 - View any input report or generated recommendation inline in the browser,
   using the browser's native PDF viewer inside an <iframe> -- no extra
   JS library needed, works in Chrome/Firefox/Edge/Safari out of the box.
 
 Run with: p-tri-ui
-This is a local single-user tool -- not hardened for multi-user or
-internet-facing deployment (see README before exposing it beyond localhost).
+Single-machine, single-process design: no auth, and the SQLite job queue
+assumes one worker thread. See README ("Running as a persistent service")
+before exposing this beyond localhost or scaling it out.
 """
 import os
+import uuid
 import threading
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash, jsonify
@@ -19,8 +25,8 @@ from flask import Flask, render_template, request, redirect, url_for, send_file,
 from .. import config
 from ..llm_backends import get_backend
 from ..graph import build_graph
-from ..db import init_db
-from ..pipeline import process_report
+from .. import db as db_module
+from ..worker import run_worker_loop
 
 
 def _safe_pdf_path(base_dir: str, filename: str) -> str:
@@ -44,38 +50,20 @@ def create_app():
     backend_name = os.environ.get("TRIAGE_LLM_BACKEND", config.DEFAULT_BACKEND)
     backend = get_backend(backend_name)
     graph_app = build_graph(backend)
-    conn = init_db()
+    conn = db_module.init_db()
+
+    # Requeue anything left "running" from a previous crash, then start the
+    # persistent worker. This thread runs for the life of the process,
+    # independent of any single HTTP request.
+    recovered = db_module.recover_interrupted_jobs(conn)
+    if recovered:
+        print(f"Recovered {recovered} job(s) interrupted by a previous shutdown/crash.")
+    threading.Thread(
+        target=run_worker_loop, args=(conn, graph_app, input_dir, output_dir), daemon=True,
+    ).start()
 
     def list_pdfs(d):
         return sorted(f for f in os.listdir(d) if f.lower().endswith(".pdf"))
-
-    # Shared state for the "Process All" background job, so the browser can
-    # poll for live progress instead of blocking on one long HTTP request.
-    job_lock = threading.Lock()
-    job_state = {
-        "running": False,
-        "total": 0,
-        "current": 0,
-        "current_file": None,
-        "succeeded": [],
-        "failed": [],
-    }
-
-    def _run_batch_job(pending_files):
-        for i, fname in enumerate(pending_files, start=1):
-            with job_lock:
-                job_state["current"] = i
-                job_state["current_file"] = fname
-            try:
-                process_report(graph_app, os.path.join(input_dir, fname), output_dir, conn)
-                with job_lock:
-                    job_state["succeeded"].append(fname)
-            except Exception as e:
-                with job_lock:
-                    job_state["failed"].append(f"{fname} ({e})")
-        with job_lock:
-            job_state["running"] = False
-            job_state["current_file"] = None
 
     @app.route("/")
     def index():
@@ -120,49 +108,38 @@ def create_app():
             flash(f"Skipped {len(skipped)} non-PDF file(s).", "error")
         return redirect(url_for("index"))
 
-    @app.route("/process/<path:filename>", methods=["POST"])
-    def process(filename):
-        try:
-            pdf_path = _safe_pdf_path(input_dir, filename)
-        except ValueError:
-            flash("Invalid file.", "error")
-            return redirect(url_for("index"))
-        if not os.path.isfile(pdf_path):
-            flash(f"{filename} not found.", "error")
-            return redirect(url_for("index"))
-        try:
-            out_path = process_report(graph_app, pdf_path, output_dir, conn)
-            flash(f"Generated recommendation: {os.path.basename(out_path)}", "ok")
-        except Exception as e:
-            flash(f"Failed to process {filename}: {e}", "error")
-        return redirect(url_for("index"))
+    @app.route("/jobs/enqueue", methods=["POST"])
+    def jobs_enqueue():
+        """
+        Enqueues processing jobs onto the durable queue and returns
+        immediately -- the actual work happens in the background worker,
+        not in this request. Body: {"filenames": [...]}  (omit/empty to
+        mean "everything currently pending").
+        """
+        payload = request.get_json(silent=True) or {}
+        requested = payload.get("filenames")
 
-    @app.route("/process_all/start", methods=["POST"])
-    def process_all_start():
-        with job_lock:
-            if job_state["running"]:
-                return jsonify({"error": "A batch job is already running."}), 409
-
+        if requested:
+            filenames = [secure_filename(f) for f in requested if f]
+        else:
             inputs = list_pdfs(input_dir)
             outputs = list_pdfs(output_dir)
             already_done = {os.path.splitext(o)[0].removesuffix("_recommendation") for o in outputs}
-            pending = [f for f in inputs if os.path.splitext(f)[0] not in already_done]
+            filenames = [f for f in inputs if os.path.splitext(f)[0] not in already_done]
 
-            if not pending:
-                return jsonify({"total": 0})
+        filenames = [f for f in filenames if os.path.isfile(os.path.join(input_dir, f))]
+        if not filenames:
+            return jsonify({"total": 0})
 
-            job_state.update({
-                "running": True, "total": len(pending), "current": 0,
-                "current_file": None, "succeeded": [], "failed": [],
-            })
+        batch_id = uuid.uuid4().hex
+        for f in filenames:
+            db_module.enqueue_job(conn, batch_id, f)
 
-        threading.Thread(target=_run_batch_job, args=(pending,), daemon=True).start()
-        return jsonify({"total": len(pending)})
+        return jsonify({"batch_id": batch_id, "total": len(filenames)})
 
-    @app.route("/process_all/status")
-    def process_all_status():
-        with job_lock:
-            return jsonify(dict(job_state))
+    @app.route("/jobs/status/<batch_id>")
+    def jobs_status(batch_id):
+        return jsonify(db_module.batch_status(conn, batch_id))
 
     @app.route("/view/<kind>/<path:filename>")
     def view(kind, filename):

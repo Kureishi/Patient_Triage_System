@@ -47,56 +47,71 @@
             n === 0 ? 'No folder chosen' : (n + ' file' + (n === 1 ? '' : 's') + ' selected');
         });
 
-        var processAllBtn = document.getElementById('process-all-btn');
-        if (processAllBtn) {
-          processAllBtn.addEventListener('click', function () {
-            processAllBtn.disabled = true;
-            fetch("{{ url_for('process_all_start') }}", { method: 'POST' })
-              .then(function (r) { return r.json(); })
-              .then(function (data) {
-                if (data.total === 0) {
-                  processAllBtn.disabled = false;
-                  return;
-                }
-                document.getElementById('process-all-progress').style.display = 'block';
-                pollProcessAllStatus();
-              })
-              .catch(function () { processAllBtn.disabled = false; });
-          });
+        var statusUrlTemplate = "{{ url_for('jobs_status', batch_id='BATCHID') }}";
+
+        function setButtonsDisabled(disabled) {
+          document.querySelectorAll('.process-btn').forEach(function (b) { b.disabled = disabled; });
         }
 
-        function pollProcessAllStatus() {
-          fetch("{{ url_for('process_all_status') }}")
+        function enqueueBatch(filenames) {
+          setButtonsDisabled(true);
+          fetch("{{ url_for('jobs_enqueue') }}", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filenames: filenames })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.total) {
+                setButtonsDisabled(false);
+                return;
+              }
+              document.getElementById('process-progress').style.display = 'block';
+              pollStatus(data.batch_id);
+            })
+            .catch(function () { setButtonsDisabled(false); });
+        }
+
+        function pollStatus(batchId) {
+          fetch(statusUrlTemplate.replace('BATCHID', batchId))
             .then(function (r) { return r.json(); })
             .then(function (state) {
               var pct = state.total ? Math.round((state.current / state.total) * 100) : 0;
-              document.getElementById('process-all-bar').style.width = pct + '%';
-              document.getElementById('process-all-label').textContent =
+              document.getElementById('process-bar').style.width = pct + '%';
+              document.getElementById('process-label').textContent =
                 state.running
                   ? ('Processing ' + state.current + '/' + state.total + ': ' + (state.current_file || ''))
                   : ('Done — ' + state.succeeded.length + ' succeeded, ' + state.failed.length + ' failed');
 
               if (state.running) {
-                setTimeout(pollProcessAllStatus, 500);
+                setTimeout(function () { pollStatus(batchId); }, 500);
               } else {
                 setTimeout(function () { window.location.reload(); }, 800);
               }
             });
         }
+
+        var processAllBtn = document.getElementById('process-all-btn');
+        if (processAllBtn) {
+          processAllBtn.addEventListener('click', function () { enqueueBatch(null); });
+        }
+        document.querySelectorAll('.process-one-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () { enqueueBatch([btn.dataset.filename]); });
+        });
       </script>
 
       <section>
         <div class="section-header">
           <h2>Input reports ({{ inputs|length }})</h2>
           {% if inputs %}
-            <button type="button" id="process-all-btn" class="small-btn">Process All</button>
+            <button type="button" id="process-all-btn" class="small-btn process-btn">Process All</button>
           {% endif %}
         </div>
-        <div id="process-all-progress" class="progress-container" style="display:none">
+        <div id="process-progress" class="progress-container" style="display:none">
           <div class="progress-bar-track">
-            <div id="process-all-bar" class="progress-bar-fill"></div>
+            <div id="process-bar" class="progress-bar-fill"></div>
           </div>
-          <span id="process-all-label" class="progress-label"></span>
+          <span id="process-label" class="progress-label"></span>
         </div>
         <ul class="file-list">
           {% for f in inputs %}
@@ -109,9 +124,7 @@
                 {% if stem in has_recommendation %}
                   <span class="tag tag-done">processed</span>
                 {% else %}
-                  <form action="{{ url_for('process', filename=f) }}" method="post" style="display:inline">
-                    <button type="submit" class="small-btn">Process</button>
-                  </form>
+                  <button type="button" class="small-btn process-btn process-one-btn" data-filename="{{ f }}">Process</button>
                 {% endif %}
               </div>
             </li>
