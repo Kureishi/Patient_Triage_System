@@ -40,66 +40,6 @@
         </form>
       </section>
 
-      <script>
-        document.getElementById('report-folder').addEventListener('change', function (e) {
-          var n = e.target.files.length;
-          document.getElementById('folder-file-summary').textContent =
-            n === 0 ? 'No folder chosen' : (n + ' file' + (n === 1 ? '' : 's') + ' selected');
-        });
-
-        var statusUrlTemplate = "{{ url_for('jobs_status', batch_id='BATCHID') }}";
-
-        function setButtonsDisabled(disabled) {
-          document.querySelectorAll('.process-btn').forEach(function (b) { b.disabled = disabled; });
-        }
-
-        function enqueueBatch(filenames) {
-          setButtonsDisabled(true);
-          fetch("{{ url_for('jobs_enqueue') }}", {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filenames: filenames })
-          })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-              if (!data.total) {
-                setButtonsDisabled(false);
-                return;
-              }
-              document.getElementById('process-progress').style.display = 'block';
-              pollStatus(data.batch_id);
-            })
-            .catch(function () { setButtonsDisabled(false); });
-        }
-
-        function pollStatus(batchId) {
-          fetch(statusUrlTemplate.replace('BATCHID', batchId))
-            .then(function (r) { return r.json(); })
-            .then(function (state) {
-              var pct = state.total ? Math.round((state.current / state.total) * 100) : 0;
-              document.getElementById('process-bar').style.width = pct + '%';
-              document.getElementById('process-label').textContent =
-                state.running
-                  ? ('Processing ' + state.current + '/' + state.total + ': ' + (state.current_file || ''))
-                  : ('Done — ' + state.succeeded.length + ' succeeded, ' + state.failed.length + ' failed');
-
-              if (state.running) {
-                setTimeout(function () { pollStatus(batchId); }, 500);
-              } else {
-                setTimeout(function () { window.location.reload(); }, 800);
-              }
-            });
-        }
-
-        var processAllBtn = document.getElementById('process-all-btn');
-        if (processAllBtn) {
-          processAllBtn.addEventListener('click', function () { enqueueBatch(null); });
-        }
-        document.querySelectorAll('.process-one-btn').forEach(function (btn) {
-          btn.addEventListener('click', function () { enqueueBatch([btn.dataset.filename]); });
-        });
-      </script>
-
       <section>
         <div class="section-header">
           <h2>Input reports ({{ inputs|length }})</h2>
@@ -156,5 +96,65 @@
               src="about:blank"></iframe>
     </main>
   </div>
+
+  <script>
+    document.getElementById('report-folder').addEventListener('change', function (e) {
+      var n = e.target.files.length;
+      document.getElementById('folder-file-summary').textContent =
+        n === 0 ? 'No folder chosen' : (n + ' file' + (n === 1 ? '' : 's') + ' selected');
+    });
+
+    var statusUrlTemplate = "{{ url_for('jobs_status', batch_id='BATCHID') }}";
+
+    function setButtonsDisabled(disabled) {
+      document.querySelectorAll('.process-btn').forEach(function (b) { b.disabled = disabled; });
+    }
+
+    function enqueueBatch(filenames) {
+      setButtonsDisabled(true);
+      fetch("{{ url_for('jobs_enqueue') }}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filenames: filenames })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.total) {
+            setButtonsDisabled(false);
+            return;
+          }
+          document.getElementById('process-progress').style.display = 'block';
+          pollStatus(data.batch_id);
+        })
+        .catch(function () { setButtonsDisabled(false); });
+    }
+
+    function pollStatus(batchId) {
+      fetch(statusUrlTemplate.replace('BATCHID', batchId))
+        .then(function (r) { return r.json(); })
+        .then(function (state) {
+          var pct = state.total ? Math.round((state.current / state.total) * 100) : 0;
+          document.getElementById('process-bar').style.width = pct + '%';
+          document.getElementById('process-label').textContent =
+            state.running
+              ? ('Processing ' + state.current + '/' + state.total + ': ' + (state.current_file || ''))
+              : ('Done — ' + state.succeeded.length + ' succeeded, ' + state.failed.length + ' failed');
+
+          if (state.running) {
+            setTimeout(function () { pollStatus(batchId); }, 500);
+          } else {
+            setTimeout(function () { window.location.reload(); }, 800);
+          }
+        });
+    }
+
+    var processAllBtn = document.getElementById('process-all-btn');
+    if (processAllBtn) {
+      processAllBtn.addEventListener('click', function () { enqueueBatch(null); });
+    }
+    document.querySelectorAll('.process-one-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { enqueueBatch([btn.dataset.filename]); });
+    });
+  </script>
 </body>
 </html>
